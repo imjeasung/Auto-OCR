@@ -97,6 +97,75 @@
         .copy-btn:hover {
             background-color: #218838;
         }
+        .file-list {
+            margin: 20px 0;
+            display: none;
+        }
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin: 5px 0;
+            background: white;
+        }
+        .file-item.processing {
+            background: #fff3cd;
+            border-color: #ffeaa7;
+        }
+        .file-item.completed {
+            background: #d4edda;
+            border-color: #c3e6cb;
+        }
+        .file-item.error {
+            background: #f8d7da;
+            border-color: #f5c6cb;
+        }
+        .process-btn {
+            background-color: #17a2b8;
+            color: white;
+            padding: 5px 10px;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .process-btn:hover {
+            background-color: #138496;
+        }
+        .process-btn:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid #dee2e6;
+            margin-top: 20px;
+            display: none;
+        }
+        .tab {
+            padding: 10px 15px;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-bottom: none;
+            cursor: pointer;
+            margin-right: 2px;
+            border-radius: 5px 5px 0 0;
+        }
+        .tab.active {
+            background: white;
+            border-bottom: 2px solid white;
+            margin-bottom: -2px;
+        }
+        .tab-content {
+            display: none;
+            padding: 20px;
+            border: 1px solid #dee2e6;
+            border-top: none;
+            background: white;
+        }
         .loading {
             display: none;
             text-align: center;
@@ -123,30 +192,29 @@
         
         <div class="upload-area" id="upload-area">
             <p>영수증 이미지를 여기에 드래그하거나 클릭하여 선택하세요</p>
-            <p style="color: #666; font-size: 14px;">지원 형식: JPG, PNG, PDF (최대 10MB)</p>
-            <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.pdf">
+            <p style="color: #666; font-size: 14px;">지원 형식: JPG, PNG, PDF (최대 10MB) | 여러 파일 선택 가능</p>
+            <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.pdf" multiple>
         </div>
         
-        <div style="text-align: center;">
-            <button class="btn" id="upload-btn" disabled>OCR 텍스트 추출</button>
+        <div class="file-list" id="file-list">
+            <h3>선택된 파일들</h3>
+            <div id="file-items"></div>
         </div>
         
-        <div class="loading" id="loading">
-            <div class="spinner"></div>
-            <p>OCR 처리 중입니다...</p>
-        </div>
-        
-        <div class="result" id="result"></div>
+        <div class="tabs" id="tabs"></div>
+        <div id="tab-contents"></div>
     </div>
 
     <script>
         const uploadArea = document.getElementById('upload-area');
         const fileInput = document.getElementById('file-input');
-        const uploadBtn = document.getElementById('upload-btn');
-        const loading = document.getElementById('loading');
-        const result = document.getElementById('result');
+        const fileList = document.getElementById('file-list');
+        const fileItems = document.getElementById('file-items');
+        const tabs = document.getElementById('tabs');
+        const tabContents = document.getElementById('tab-contents');
         
-        let selectedFile = null;
+        let selectedFiles = [];
+        let processResults = {};
         
         // 드래그 앤 드롭 이벤트
         uploadArea.addEventListener('click', () => fileInput.click());
@@ -160,39 +228,55 @@
         uploadArea.addEventListener('drop', (e) => {
             e.preventDefault();
             uploadArea.classList.remove('dragover');
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                handleFileSelect(files[0]);
-            }
+            const files = Array.from(e.dataTransfer.files);
+            handleFileSelect(files);
         });
         
         // 파일 선택 이벤트
         fileInput.addEventListener('change', (e) => {
-            if (e.target.files.length > 0) {
-                handleFileSelect(e.target.files[0]);
-            }
+            const files = Array.from(e.target.files);
+            handleFileSelect(files);
         });
         
         // 파일 선택 처리
-        function handleFileSelect(file) {
-            selectedFile = file;
-            uploadArea.innerHTML = `<p>선택된 파일: ${file.name}</p><p style="color: #666;">다른 파일을 선택하려면 클릭하세요</p>`;
-            uploadBtn.disabled = false;
+        function handleFileSelect(files) {
+            selectedFiles = files;
+            displayFileList();
+            fileList.style.display = 'block';
         }
         
-        // 업로드 버튼 이벤트
-        uploadBtn.addEventListener('click', uploadFile);
+        // 파일 목록 표시
+        function displayFileList() {
+            fileItems.innerHTML = '';
+            selectedFiles.forEach((file, index) => {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                fileItem.id = `file-${index}`;
+                
+                fileItem.innerHTML = `
+                    <span>${file.name} (${(file.size / 1024 / 1024).toFixed(2)}MB)</span>
+                    <button class="process-btn" onclick="processFile(${index})" id="btn-${index}">
+                        OCR 처리
+                    </button>
+                `;
+                
+                fileItems.appendChild(fileItem);
+            });
+        }
         
-        // OCR 처리 함수
-        async function uploadFile() {
-            if (!selectedFile) return;
+        // 개별 파일 OCR 처리
+        async function processFile(index) {
+            const file = selectedFiles[index];
+            const fileItem = document.getElementById(`file-${index}`);
+            const btn = document.getElementById(`btn-${index}`);
+            
+            // 처리 중 상태 변경
+            fileItem.className = 'file-item processing';
+            btn.textContent = '처리 중...';
+            btn.disabled = true;
             
             const formData = new FormData();
-            formData.append('receipt', selectedFile);
-            
-            uploadBtn.disabled = true;
-            loading.style.display = 'block';
-            result.style.display = 'none';
+            formData.append('receipt', file);
             
             try {
                 const response = await fetch('/ocr', {
@@ -202,63 +286,115 @@
                 
                 const data = await response.json();
                 
-                loading.style.display = 'none';
-                result.style.display = 'block';
-                
                 if (response.ok && data.success) {
-                    result.className = 'result success';
-                    let resultHtml = '<h3>OCR 처리 완료!</h3>';
+                    // 성공
+                    fileItem.className = 'file-item completed';
+                    btn.textContent = '완료';
+                    btn.disabled = true;  // 완료 후 버튼 비활성화
+                    btn.onclick = null;   // 클릭 이벤트 제거
                     
-                    if (data.formattedText) {
-                        resultHtml += `
-                            <h4>정리된 영수증 정보:</h4>
-                            <div class="text-result" id="formatted-text">${data.formattedText}</div>
-                            <button class="copy-btn" onclick="copyFormattedText()">정리된 텍스트 복사</button>
-                            
-                            <h4>원본 OCR 텍스트:</h4>
-                            <div class="text-result" id="raw-text" style="max-height: 150px;">${data.rawText}</div>
-                            <button class="copy-btn" onclick="copyRawText()">원본 텍스트 복사</button>
-                        `;
-                    } else {
-                        resultHtml += `
-                            <p>GPT 정리 실패: ${data.gptError}</p>
-                            <h4>원본 OCR 텍스트:</h4>
-                            <div class="text-result" id="raw-text">${data.rawText}</div>
-                            <button class="copy-btn" onclick="copyRawText()">원본 텍스트 복사</button>
-                        `;
-                    }
+                    // 결과 저장
+                    processResults[index] = {
+                        fileName: file.name,
+                        rawText: data.rawText,
+                        formattedText: data.formattedText,
+                        gptError: data.gptError
+                    };
                     
-                    result.innerHTML = resultHtml;
+                    // 탭 추가
+                    addTab(index, file.name);
+                    
                 } else {
-                    result.className = 'result error';
-                    result.innerHTML = `<h3>OCR 처리 실패</h3><p>${data.error}</p>`;
+                    // 실패
+                    fileItem.className = 'file-item error';
+                    btn.textContent = '재시도';
+                    btn.disabled = false;  // 실패 시 재시도 가능
+                    processResults[index] = {
+                        fileName: file.name,
+                        error: data.error
+                    };
                 }
+                
             } catch (error) {
-                loading.style.display = 'none';
-                result.style.display = 'block';
-                result.className = 'result error';
-                result.innerHTML = `<h3>오류 발생</h3><p>네트워크 오류가 발생했습니다.</p>`;
+                fileItem.className = 'file-item error';
+                btn.textContent = '재시도';
+                btn.disabled = false;  // 오류 시 재시도 가능
+                processResults[index] = {
+                    fileName: file.name,
+                    error: '네트워크 오류가 발생했습니다.'
+                };
+            }
+        }
+        
+        // 탭 추가
+        function addTab(index, fileName) {
+            // 탭 영역 표시
+            tabs.style.display = 'flex';
+            
+            // 탭 생성
+            const tab = document.createElement('div');
+            tab.className = 'tab';
+            tab.id = `tab-${index}`;
+            tab.textContent = fileName;
+            tab.onclick = () => showTab(index);
+            tabs.appendChild(tab);
+            
+            // 탭 내용 생성
+            const tabContent = document.createElement('div');
+            tabContent.className = 'tab-content';
+            tabContent.id = `content-${index}`;
+            
+            const result = processResults[index];
+            let contentHtml = `<h3>${fileName} - OCR 결과</h3>`;
+            
+            if (result.error) {
+                contentHtml += `<p style="color: red;">오류: ${result.error}</p>`;
+            } else {
+                if (result.formattedText) {
+                    contentHtml += `
+                        <h4>정리된 영수증 정보:</h4>
+                        <div class="text-result" id="formatted-${index}">${result.formattedText}</div>
+                        <button class="copy-btn" onclick="copyText('formatted-${index}', '정리된 텍스트')">정리된 텍스트 복사</button>
+                        
+                        <h4>원본 OCR 텍스트:</h4>
+                        <div class="text-result" id="raw-${index}" style="max-height: 150px;">${result.rawText}</div>
+                        <button class="copy-btn" onclick="copyText('raw-${index}', '원본 텍스트')">원본 텍스트 복사</button>
+                    `;
+                } else {
+                    contentHtml += `
+                        <p>GPT 정리 실패: ${result.gptError}</p>
+                        <h4>원본 OCR 텍스트:</h4>
+                        <div class="text-result" id="raw-${index}">${result.rawText}</div>
+                        <button class="copy-btn" onclick="copyText('raw-${index}', '원본 텍스트')">원본 텍스트 복사</button>
+                    `;
+                }
             }
             
-            uploadBtn.disabled = false;
+            tabContent.innerHTML = contentHtml;
+            tabContents.appendChild(tabContent);
+            
+            // 첫 번째 탭이면 활성화
+            if (tabs.children.length === 1) {
+                showTab(index);
+            }
         }
         
-        // 정리된 텍스트 복사
-        function copyFormattedText() {
-            const textElement = document.getElementById('formatted-text');
+        // 탭 전환
+        function showTab(index) {
+            // 모든 탭 비활성화
+            Array.from(tabs.children).forEach(tab => tab.classList.remove('active'));
+            Array.from(tabContents.children).forEach(content => content.style.display = 'none');
+            
+            // 선택된 탭 활성화
+            document.getElementById(`tab-${index}`).classList.add('active');
+            document.getElementById(`content-${index}`).style.display = 'block';
+        }
+        
+        // 텍스트 복사 함수
+        function copyText(elementId, type = '텍스트') {
+            const textElement = document.getElementById(elementId);
             const text = textElement.textContent;
-            copyToClipboard(text, '정리된 텍스트');
-        }
-        
-        // 원본 텍스트 복사
-        function copyRawText() {
-            const textElement = document.getElementById('raw-text');
-            const text = textElement.textContent;
-            copyToClipboard(text, '원본 텍스트');
-        }
-        
-        // 클립보드 복사 함수
-        function copyToClipboard(text, type = '텍스트') {
+            
             navigator.clipboard.writeText(text).then(() => {
                 alert(`${type}가 클립보드에 복사되었습니다!`);
             }).catch(() => {
